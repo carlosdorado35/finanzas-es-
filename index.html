@@ -28,9 +28,9 @@ th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white
 th{color:var(--mute);font-weight:500;font-size:.85rem}
 td.n{text-align:right;font-variant-numeric:tabular-nums}
 input[type=search]{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
-.filtros{display:flex;gap:8px;margin:10px 0}
-.filtros button{font:inherit;padding:6px 14px;border:1px solid var(--line);border-radius:99px;background:none;color:var(--ink);cursor:pointer}
-.filtros button[aria-pressed=true]{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+.filtros,.perf{display:flex;gap:8px;margin:10px 0}
+.filtros button,.perf button{font:inherit;padding:6px 14px;border:1px solid var(--line);border-radius:99px;background:none;color:var(--ink);cursor:pointer}
+.filtros button[aria-pressed=true],.perf button[aria-pressed=true]{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
 .msg{color:var(--mute);padding:14px 4px}
 .err{color:var(--warn);background:var(--warn-bg);border-radius:8px;padding:10px 12px}
 .it{display:flex;gap:8px;align-items:flex-start;padding:10px 2px;border-bottom:1px solid var(--line)}
@@ -38,6 +38,8 @@ input[type=search]{width:100%;font:inherit;padding:12px;border:1px solid var(--l
 .it .tx{flex:1;min-width:0;cursor:pointer}
 .it small{color:var(--mute)}
 .det{font-size:.88rem;background:var(--ok-bg);border-radius:8px;padding:8px 10px;margin-top:6px}
+.sc{min-width:52px;font-weight:600;font-size:1.4rem;color:var(--acc);text-align:center}
+.sc.b{color:var(--warn)}
 .aviso{font-size:.82rem;color:var(--mute);margin-top:20px}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style>
@@ -49,6 +51,7 @@ input[type=search]{width:100%;font:inherit;padding:12px;border:1px solid var(--l
 
 <nav role="tablist" aria-label="Secciones">
   <button role="tab" aria-selected="true" data-t="consenso">Consenso 13F</button>
+  <button role="tab" aria-selected="false" data-t="motor">Motor</button>
   <button role="tab" aria-selected="false" data-t="fondos">Fondos</button>
   <button role="tab" aria-selected="false" data-t="macro">Macro</button>
   <button role="tab" aria-selected="false" data-t="buscador">Buscador</button>
@@ -56,6 +59,16 @@ input[type=search]{width:100%;font:inherit;padding:12px;border:1px solid var(--l
 </nav>
 
 <section id="consenso" class="panel"><div class="msg">Cargando…</div></section>
+<section id="motor" class="panel" hidden>
+  <p class="sub">Puntuación de 0 a 100 con los 13F reales de los diez fondos. Sube con compras y posiciones nuevas y baja con ventas. Cambia el perfil para ver cómo varía.</p>
+  <div class="perf" role="group" aria-label="Perfil de inversor">
+    <button data-p="cons" aria-pressed="false">Prudente</button>
+    <button data-p="equi" aria-pressed="true">Equilibrado</button>
+    <button data-p="din" aria-pressed="false">Dinámico</button>
+  </div>
+  <div id="mlista"><div class="msg">Cargando…</div></div>
+  <p class="aviso">Lectura educativa basada solo en declaraciones 13F, que llegan con retraso. No es una recomendación de compra ni de venta.</p>
+</section>
 <section id="fondos" class="panel" hidden><div class="msg">Cargando…</div></section>
 <section id="macro" class="panel" hidden><div class="msg">Cargando…</div></section>
 <section id="buscador" class="panel" hidden>
@@ -118,7 +131,7 @@ Promise.all([
 let CONS=[];
 function cargarConsenso(){
   return api("consenso_13f?select=*&order=fondos_compran.desc.nullslast,fondos_nueva.desc.nullslast&limit=1000")
-   .then(d=>{CONS=d;document.getElementById("consenso").innerHTML=tabla(d.slice(0,100));pintarLista()})
+   .then(d=>{CONS=d;document.getElementById("consenso").innerHTML=tabla(d.slice(0,100));pintarLista();motor()})
    .catch(e=>{document.getElementById("consenso").innerHTML='<div class="err">No se pudieron cargar los datos ('+esc(e.message)+'). Recarga la página en unos minutos.</div>';throw e});
 }
 const SUF=/\b(INC|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|PLC|HLDG|HLDGS|HOLDINGS|GROUP|DEL|THE|NV|SA|AG|LP|CL|A|B|C|NEW)\b/g;
@@ -158,6 +171,38 @@ document.addEventListener("click",e=>{
     d.hidden=!d.hidden}
 });
 pintarLista();
+
+// Motor de puntuación explicable (perfil guardado en este navegador)
+const PERF={cons:{c:10,v:15,nu:4,b:10},equi:{c:10,v:10,nu:8,b:0},din:{c:10,v:7,nu:12,b:0}};
+let perfil="equi";
+try{perfil=localStorage.getItem("fe_perfil")||"equi"}catch(e){}
+function motor(){
+  const g={};
+  CONS.forEach(c=>{
+    const k=norm(c.emisor),kn=Object.keys(c).find(x=>x.startsWith("fondos_nueva"));
+    const o=g[k]||(g[k]={n:c.emisor,c:0,v:0,nu:0});
+    o.c+=Number(c.fondos_compran)||0;o.v+=Number(c.fondos_venden)||0;o.nu+=kn?(Number(c[kn])||0):0;
+  });
+  const P=PERF[perfil];
+  document.querySelectorAll(".perf button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.p===perfil));
+  const l=Object.values(g).filter(o=>o.c+o.v+o.nu>0).map(o=>{
+    const pc=Math.min(o.c,5)*P.c,pv=-Math.min(o.v,5)*P.v,pn=Math.min(o.nu,3)*P.nu,pb=o.c>=3?P.b:0;
+    return Object.assign({},o,{s:Math.max(0,Math.min(100,50+pc+pv+pn+pb)),pc,pv,pn,pb});
+  }).sort((a,b)=>b.s-a.s||b.c-a.c).slice(0,20);
+  document.getElementById("mlista").innerHTML=l.length?l.map(o=>{
+    const e=[];
+    if(o.pc) e.push("+"+o.pc+" por "+o.c+" fondo(s) que compran");
+    if(o.pb) e.push("+"+o.pb+" por consenso amplio");
+    if(o.pn) e.push("+"+o.pn+" por posición nueva");
+    if(o.pv) e.push(o.pv+" por "+o.v+" fondo(s) que venden");
+    const lec=o.s>=65?"Lectura alcista":o.s<=35?"Lectura bajista":"Lectura neutra";
+    return '<div class="it"><div class="sc'+(o.s<=35?" b":"")+'">'+o.s+'</div><div class="tx" style="cursor:default"><b>'+esc(o.n)+'</b> <small>'+lec+'</small><br><small>'+esc(e.join(", ")||"Sin movimientos relevantes")+'</small></div></div>';
+  }).join(""):'<div class="msg">No hay datos todavía.</div>';
+}
+document.querySelectorAll(".perf button").forEach(b=>b.addEventListener("click",()=>{
+  perfil=b.dataset.p;try{localStorage.setItem("fe_perfil",perfil)}catch(e){}
+  motor();
+}));
 
 // Buscador del catálogo, con los más relevantes primero
 let tipo="",temporizador,seq=0,ULT=null;
