@@ -82,7 +82,8 @@ function celda(v){
 }
 function tabla(filas){
   if(!filas.length) return '<div class="msg">No hay datos todavía.</div>';
-  const cols=Object.keys(filas[0]);
+  let cols=Object.keys(filas[0]);
+  if(cols.includes("emisor")) cols=["emisor",...cols.filter(c=>c!=="emisor"&&c!=="cusip"),...(cols.includes("cusip")?["cusip"]:[])];
   return '<div class="scroll"><table><thead><tr>'+cols.map(c=>"<th>"+esc(c.replace(/_/g," "))+"</th>").join("")+
     "</tr></thead><tbody>"+filas.map(f=>"<tr>"+cols.map(c=>celda(f[c])).join("")+"</tr>").join("")+"</tbody></table></div>";
 }
@@ -99,7 +100,7 @@ document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()
 
 // Datos en directo
 Promise.all([
-  pintar("consenso","consenso_13f?select=*&limit=100"),
+  pintar("consenso","consenso_13f?select=*&order=fondos_compran.desc.nullslast,fondos_nueva.desc.nullslast&limit=100"),
   pintar("fondos","fondos_estado?select=*"),
   pintar("macro","macro_ultimo?select=*")
 ]).then(()=>{document.getElementById("estado").textContent="Datos reales en directo desde Supabase"})
