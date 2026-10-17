@@ -33,6 +33,11 @@ input[type=search]{width:100%;font:inherit;padding:12px;border:1px solid var(--l
 .filtros button[aria-pressed=true]{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
 .msg{color:var(--mute);padding:14px 4px}
 .err{color:var(--warn);background:var(--warn-bg);border-radius:8px;padding:10px 12px}
+.it{display:flex;gap:8px;align-items:flex-start;padding:10px 2px;border-bottom:1px solid var(--line)}
+.it .st{border:0;background:none;font-size:1.5rem;line-height:1;color:var(--acc);cursor:pointer;padding:2px 6px}
+.it .tx{flex:1;min-width:0;cursor:pointer}
+.it small{color:var(--mute)}
+.det{font-size:.88rem;background:var(--ok-bg);border-radius:8px;padding:8px 10px;margin-top:6px}
 .aviso{font-size:.82rem;color:var(--mute);margin-top:20px}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style>
@@ -47,6 +52,7 @@ input[type=search]{width:100%;font:inherit;padding:12px;border:1px solid var(--l
   <button role="tab" aria-selected="false" data-t="fondos">Fondos</button>
   <button role="tab" aria-selected="false" data-t="macro">Macro</button>
   <button role="tab" aria-selected="false" data-t="buscador">Buscador</button>
+  <button role="tab" aria-selected="false" data-t="lista">Mi lista</button>
 </nav>
 
 <section id="consenso" class="panel"><div class="msg">Cargando…</div></section>
@@ -62,6 +68,8 @@ input[type=search]{width:100%;font:inherit;padding:12px;border:1px solid var(--l
   </div>
   <div id="res"><div class="msg">Escribe al menos 2 letras.</div></div>
 </section>
+
+<section id="lista" class="panel" hidden></section>
 
 <p class="aviso">Información y formación, no asesoramiento financiero. Los 13F se publican con retraso y no incluyen posiciones cortas. Fuentes: SEC, FRED, CoinGecko.</p>
 
@@ -100,25 +108,83 @@ document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()
 
 // Datos en directo
 Promise.all([
-  pintar("consenso","consenso_13f?select=*&order=fondos_compran.desc.nullslast,fondos_nueva.desc.nullslast&limit=100"),
+  cargarConsenso(),
   pintar("fondos","fondos_estado?select=*"),
   pintar("macro","macro_ultimo?select=*")
 ]).then(()=>{document.getElementById("estado").textContent="Datos reales en directo desde Supabase"})
  .catch(()=>{const e=document.getElementById("estado");e.textContent="Algunos datos no se cargaron";e.classList.add("ej")});
 
-// Buscador del catálogo
-let tipo="",temporizador,seq=0;
+// Consenso en memoria (para el detalle)
+let CONS=[];
+function cargarConsenso(){
+  return api("consenso_13f?select=*&order=fondos_compran.desc.nullslast,fondos_nueva.desc.nullslast&limit=1000")
+   .then(d=>{CONS=d;document.getElementById("consenso").innerHTML=tabla(d.slice(0,100));pintarLista()})
+   .catch(e=>{document.getElementById("consenso").innerHTML='<div class="err">No se pudieron cargar los datos ('+esc(e.message)+'). Recarga la página en unos minutos.</div>';throw e});
+}
+const SUF=/\b(INC|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|PLC|HLDG|HLDGS|HOLDINGS|GROUP|DEL|THE|NV|SA|AG|LP|CL|A|B|C|NEW)\b/g;
+function norm(n){return String(n||"").toUpperCase().replace(/[^A-Z0-9 ]/g," ").replace(SUF," ").replace(/\s+/g,"")}
+function info(nombre){
+  const k=norm(nombre),f=CONS.filter(c=>norm(c.emisor)===k);
+  if(!f.length) return "No aparece en el consenso 13F actual (o el nombre no coincide exactamente).";
+  const kn=Object.keys(f[0]).find(x=>x.startsWith("fondos_nueva"));
+  const sum=x=>f.reduce((a,c)=>a+(Number(c[x])||0),0);
+  return "Consenso 13F: "+sum("fondos_compran")+" fondos compran, "+sum("fondos_venden")+" venden"+(kn?", "+sum(kn)+" con posición nueva":"")+"."+(f.length>1?" Suma de "+f.length+" clases de acciones.":"")+" Coincidencia por nombre.";
+}
+
+// Mi lista (se guarda solo en este navegador)
+function lista(){try{return JSON.parse(localStorage.getItem("fe_lista")||"[]")}catch(e){return[]}}
+function guardar(l){try{localStorage.setItem("fe_lista",JSON.stringify(l))}catch(e){}}
+function esta(s,t){return lista().some(x=>x.simbolo===s&&x.tipo===t)}
+function alternar(s,t,n){
+  let l=lista();
+  l=esta(s,t)?l.filter(x=>!(x.simbolo===s&&x.tipo===t)):l.concat([{tipo:t,simbolo:s,nombre:n}]);
+  guardar(l);pintarLista();mostrar();
+}
+function item(x){
+  const on=esta(x.simbolo,x.tipo);
+  return '<div class="it"><button class="st" data-s="'+esc(x.simbolo)+'" data-t="'+x.tipo+'" data-n="'+esc(x.nombre)+'" aria-label="'+(on?"Quitar de mi lista":"Añadir a mi lista")+'">'+(on?"★":"☆")+'</button>'+
+   '<div class="tx" data-t="'+x.tipo+'" data-n="'+esc(x.nombre)+'" tabindex="0" role="button"><b>'+esc(x.simbolo)+'</b> <small>'+(x.tipo==="cripto"?"cripto":"acción")+'</small><br>'+esc(x.nombre)+'<div class="det" hidden></div></div></div>';
+}
+function pintarLista(){
+  const l=lista();
+  document.getElementById("lista").innerHTML=l.length?l.map(item).join(""):'<div class="msg">Aún no tienes nada. Pulsa la estrella ☆ en un resultado del buscador para guardarlo aquí. Toca un nombre para ver su consenso de fondos.</div>';
+}
+document.addEventListener("click",e=>{
+  const st=e.target.closest(".st");
+  if(st){alternar(st.dataset.s,st.dataset.t,st.dataset.n);return}
+  const tx=e.target.closest(".tx");
+  if(tx){const d=tx.querySelector(".det");
+    if(d.hidden) d.textContent=tx.dataset.t==="cripto"?"Las criptomonedas no aparecen en los 13F.":info(tx.dataset.n);
+    d.hidden=!d.hidden}
+});
+pintarLista();
+
+// Buscador del catálogo, con los más relevantes primero
+let tipo="",temporizador,seq=0,ULT=null;
 const q=document.getElementById("q"),res=document.getElementById("res");
+function punt(x,t){
+  const s=x.simbolo.toUpperCase(),n=x.nombre.toUpperCase(),T=t.toUpperCase();
+  if(s===T) return 0;
+  if(n.startsWith(T)) return 1;
+  if(s.startsWith(T)) return 2;
+  if(n.split(/[^A-Z0-9]+/).some(w=>w.startsWith(T))) return 3;
+  return 4;
+}
+function mostrar(){
+  if(ULT===null) return;
+  res.innerHTML=ULT.length?ULT.map(item).join(""):'<div class="msg">Sin resultados. Prueba con otro nombre o con el símbolo.</div>';
+}
 async function buscar(){
   const t=q.value.trim().replace(/[*,()%]/g,"");
-  if(t.length<2){res.innerHTML='<div class="msg">Escribe al menos 2 letras.</div>';return}
+  if(t.length<2){ULT=null;res.innerHTML='<div class="msg">Escribe al menos 2 letras.</div>';return}
   const mia=++seq;
-  let ruta="catalogo_activos?select=tipo,simbolo,nombre&or=(simbolo.ilike."+encodeURIComponent(t+"*")+",nombre.ilike."+encodeURIComponent("*"+t+"*")+")&order=simbolo.asc&limit=60";
+  let ruta="catalogo_activos?select=tipo,simbolo,nombre&or=(simbolo.ilike."+encodeURIComponent(t+"*")+",nombre.ilike."+encodeURIComponent("*"+t+"*")+")&order=simbolo.asc&limit=300";
   if(tipo) ruta+="&tipo=eq."+tipo;
   try{
     const d=await api(ruta);
     if(mia!==seq) return;
-    res.innerHTML=d.length?tabla(d):'<div class="msg">Sin resultados para «'+esc(t)+'». Prueba con otro nombre o con el símbolo.</div>';
+    ULT=d.sort((a,b)=>punt(a,t)-punt(b,t)||a.simbolo.length-b.simbolo.length||a.simbolo.localeCompare(b.simbolo)).slice(0,40);
+    mostrar();
   }catch(e){ if(mia===seq) res.innerHTML='<div class="err">No se pudo buscar ('+esc(e.message)+').</div>' }
 }
 q.addEventListener("input",()=>{clearTimeout(temporizador);temporizador=setTimeout(buscar,300)});
