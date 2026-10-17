@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>finanzas.es</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f4f7f7;--panel:#fff;--ink:#12302f;--mute:#5d7170;--line:#d5e0df;--acc:#0b6b63;--acc-ink:#fff;--warn:#8a5a00;--warn-bg:#fff3d6;--ok-bg:#dff3ee}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1a1a;--panel:#152524;--ink:#e3efee;--mute:#93a9a7;--line:#27403e;--acc:#3fc2b3;--acc-ink:#06201d;--warn:#f0c067;--warn-bg:#3a2f12;--ok-bg:#12332e}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 "IBM Plex Sans",system-ui,sans-serif;padding:0 14px 40px;max-width:900px;margin:0 auto}
+h1{font-size:1.5rem;margin:18px 0 2px;letter-spacing:-.01em}
+.sub{color:var(--mute);margin:0 0 12px;font-size:.95rem}
+.badge{display:inline-block;font-size:.8rem;padding:2px 9px;border-radius:99px;background:var(--ok-bg);color:var(--ink);margin-bottom:12px}
+.badge.ej{background:var(--warn-bg);color:var(--warn)}
+nav{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+nav button{flex:0 0 auto;border:0;background:none;color:var(--mute);font:inherit;font-weight:500;padding:10px 12px;border-bottom:3px solid transparent;cursor:pointer}
+nav button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--acc)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mute);font-weight:500;font-size:.85rem}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+input[type=search]{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+.filtros{display:flex;gap:8px;margin:10px 0}
+.filtros button{font:inherit;padding:6px 14px;border:1px solid var(--line);border-radius:99px;background:none;color:var(--ink);cursor:pointer}
+.filtros button[aria-pressed=true]{background:var(--acc);color:var(--acc-ink);border-color:var(--acc)}
+.msg{color:var(--mute);padding:14px 4px}
+.err{color:var(--warn);background:var(--warn-bg);border-radius:8px;padding:10px 12px}
+.aviso{font-size:.82rem;color:var(--mute);margin-top:20px}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<h1>finanzas.es</h1>
+<p class="sub">Qué compran y venden los grandes fondos, con datos oficiales.</p>
+<span class="badge" id="estado">Conectando con los datos…</span>
+
+<nav role="tablist" aria-label="Secciones">
+  <button role="tab" aria-selected="true" data-t="consenso">Consenso 13F</button>
+  <button role="tab" aria-selected="false" data-t="fondos">Fondos</button>
+  <button role="tab" aria-selected="false" data-t="macro">Macro</button>
+  <button role="tab" aria-selected="false" data-t="buscador">Buscador</button>
+</nav>
+
+<section id="consenso" class="panel"><div class="msg">Cargando…</div></section>
+<section id="fondos" class="panel" hidden><div class="msg">Cargando…</div></section>
+<section id="macro" class="panel" hidden><div class="msg">Cargando…</div></section>
+<section id="buscador" class="panel" hidden>
+  <label for="q" class="sub">Busca por nombre o símbolo</label>
+  <input id="q" type="search" placeholder="Apple, AAPL, bitcoin…" autocomplete="off">
+  <div class="filtros" role="group" aria-label="Tipo de activo">
+    <button data-f="" aria-pressed="true">Todos</button>
+    <button data-f="accion" aria-pressed="false">Acciones</button>
+    <button data-f="cripto" aria-pressed="false">Criptos</button>
+  </div>
+  <div id="res"><div class="msg">Escribe al menos 2 letras.</div></div>
+</section>
+
+<p class="aviso">Información y formación, no asesoramiento financiero. Los 13F se publican con retraso y no incluyen posiciones cortas. Fuentes: SEC, FRED, CoinGecko.</p>
+
+<script>
+const URL_SB="https://giuzudmmnsufjpfktdsd.supabase.co";
+const KEY="sb_publishable_N1eHH2oP2lOHOw16D5Yb9w_rnnSlk77";
+
+async function api(ruta){
+  const r=await fetch(URL_SB+"/rest/v1/"+ruta,{headers:{apikey:KEY}});
+  if(!r.ok) throw new Error("Error "+r.status);
+  return r.json();
+}
+function esc(v){return String(v).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function celda(v){
+  if(v===null||v===undefined) return "<td></td>";
+  if(typeof v==="number") return '<td class="n">'+v.toLocaleString("es-ES",{maximumFractionDigits:2})+"</td>";
+  return "<td>"+esc(v)+"</td>";
+}
+function tabla(filas){
+  if(!filas.length) return '<div class="msg">No hay datos todavía.</div>';
+  const cols=Object.keys(filas[0]);
+  return '<div class="scroll"><table><thead><tr>'+cols.map(c=>"<th>"+esc(c.replace(/_/g," "))+"</th>").join("")+
+    "</tr></thead><tbody>"+filas.map(f=>"<tr>"+cols.map(c=>celda(f[c])).join("")+"</tr>").join("")+"</tbody></table></div>";
+}
+function pintar(id,ruta){
+  return api(ruta).then(d=>{document.getElementById(id).innerHTML=tabla(d)})
+   .catch(e=>{document.getElementById(id).innerHTML='<div class="err">No se pudieron cargar los datos ('+esc(e.message)+'). Recarga la página en unos minutos.</div>';throw e});
+}
+
+// Pestañas
+document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.setAttribute("aria-selected",x===b));
+  document.querySelectorAll("section").forEach(s=>s.hidden=s.id!==b.dataset.t);
+}));
+
+// Datos en directo
+Promise.all([
+  pintar("consenso","consenso_13f?select=*&limit=100"),
+  pintar("fondos","fondos_estado?select=*"),
+  pintar("macro","macro_ultimo?select=*")
+]).then(()=>{document.getElementById("estado").textContent="Datos reales en directo desde Supabase"})
+ .catch(()=>{const e=document.getElementById("estado");e.textContent="Algunos datos no se cargaron";e.classList.add("ej")});
+
+// Buscador del catálogo
+let tipo="",temporizador,seq=0;
+const q=document.getElementById("q"),res=document.getElementById("res");
+async function buscar(){
+  const t=q.value.trim().replace(/[*,()%]/g,"");
+  if(t.length<2){res.innerHTML='<div class="msg">Escribe al menos 2 letras.</div>';return}
+  const mia=++seq;
+  let ruta="catalogo_activos?select=tipo,simbolo,nombre&or=(simbolo.ilike."+encodeURIComponent(t+"*")+",nombre.ilike."+encodeURIComponent("*"+t+"*")+")&order=simbolo.asc&limit=60";
+  if(tipo) ruta+="&tipo=eq."+tipo;
+  try{
+    const d=await api(ruta);
+    if(mia!==seq) return;
+    res.innerHTML=d.length?tabla(d):'<div class="msg">Sin resultados para «'+esc(t)+'». Prueba con otro nombre o con el símbolo.</div>';
+  }catch(e){ if(mia===seq) res.innerHTML='<div class="err">No se pudo buscar ('+esc(e.message)+').</div>' }
+}
+q.addEventListener("input",()=>{clearTimeout(temporizador);temporizador=setTimeout(buscar,300)});
+document.querySelectorAll(".filtros button").forEach(b=>b.addEventListener("click",()=>{
+  tipo=b.dataset.f;
+  document.querySelectorAll(".filtros button").forEach(x=>x.setAttribute("aria-pressed",x===b));
+  buscar();
+}));
+</script>
+</body>
+</html>
